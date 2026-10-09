@@ -323,6 +323,22 @@ pub(crate) fn compile(trace: &Trace, profile: Profile, block: u64) -> Result<Pro
                     emit(m, &mut v);
                 }
             }
+            Op::Link { from, to } => {
+                let ino = v.lookup(from).ok_or_else(|| err("no such file".into()))?;
+                if matches!(v.nodes[ino], Node::Dir(_)) {
+                    return Err(err("cannot hard-link a directory".into()));
+                }
+                if v.lookup(to).is_some() {
+                    return Err(err("target already exists".into()));
+                }
+                let (tp, tname) = split(to);
+                let tp = v
+                    .lookup(tp)
+                    .filter(|&p| matches!(v.nodes[p], Node::Dir(_)))
+                    .ok_or_else(|| err("target directory does not exist".into()))?;
+                // A second name for an existing inode: no new node, unlike Create.
+                emit(Micro::Link { parent: tp, name: tname.into(), ino }, &mut v);
+            }
             Op::Unlink { path } | Op::Rmdir { path } => {
                 v.lookup(path).ok_or_else(|| err("no such file".into()))?;
                 let (parent, name) = split(path);
@@ -444,6 +460,7 @@ mod tests {
         let d: Vec<_> = ext4.micro.iter().map(|m| m.durable_at).collect();
         assert_eq!(d, vec![2, 2, 2]);
     }
+
     #[test]
     fn write_through_link_changes_original_file() {
         let trace = Trace {

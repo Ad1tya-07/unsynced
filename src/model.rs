@@ -444,4 +444,26 @@ mod tests {
         let d: Vec<_> = ext4.micro.iter().map(|m| m.durable_at).collect();
         assert_eq!(d, vec![2, 2, 2]);
     }
+    #[test]
+    fn write_through_link_changes_original_file() {
+        let trace = Trace {
+            initial: tree(&[("f", "")]),
+            ops: vec![
+                Op::Link { from: "f".into(), to: "g".into() },
+                Op::Write { path: "g".into(), offset: 0, data: b"test".to_vec() },
+            ],
+        };
+        let program = compile(&trace, Profile::Posix, 4096).unwrap();
+        let all_saved = vec![true; program.micro.len()];
+        assert_eq!(program.materialize(&all_saved), tree(&[("f", "test"), ("g", "test")]));
+    }
+
+    #[test]
+    fn link_not_created_if_name_exists() {
+        let trace = Trace {
+            initial: tree(&[("f", "f_data"), ("g", "g_data")]),
+            ops: vec![Op::Link { from: "f".into(), to: "g".into() }],
+        };
+        assert!(matches!(compile(&trace, Profile::Posix, 4096), Err(Error::Model { op: 0, .. })));
+    }
 }
